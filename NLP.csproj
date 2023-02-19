@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net7.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MySql.Data" Version="8.0.32" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="MySQL">
+      <HintPath>..\..\Projetos2022\MySQLNet6\MySQL\bin\Release\net6.0\MySQL.dll</HintPath>
+    </Reference>
+    <Reference Include="StringUtils">
+      <HintPath>..\..\Projetos2022\StringUtils\StringUtils\bin\Release\netcoreapp2.1\StringUtils.dll</HintPath>
+    </Reference>
+    <Reference Include="ThreadsManager">
+      <HintPath>..\ThreadsManager\bin\Release\net7.0\ThreadsManager.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+</Project>
