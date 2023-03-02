@@ -61,7 +61,7 @@ namespace NLP
             {
                 string ptoken = Tokenize.WordPooling(token, PoolingRate);
                 if (token.Length > 2) _match += (_match == "" ? "" : ",") + ("\"" + token + "\"");
-                if (ptoken.Length > 2) _match += (_match == "" ? "" : ",") + ("" + ptoken + (c == 0 && token != ptoken ? "+" : "*"));
+                if (ptoken.Length > 2) _match += (_match == "" ? "" : ",") + ("" + ptoken + "*");
                 c++;
             }
 
@@ -88,11 +88,14 @@ namespace NLP
 
             string _match = "";
 
+            int c = 0;
             foreach (string token in words)
             {
                 string ptoken = Tokenize.WordPooling(token, PoolingRate);
                 if (token.Length > 2) _match += (_match == "" ? "" : ",") + ("\"" + token + "\"");
+                //if (ptoken.Length > 2) _match += (_match == "" ? "" : ",") + ("" + ptoken + (c == 0 && token != ptoken ? "+" : "*"));
                 if (ptoken.Length > 2) _match += (_match == "" ? "" : ",") + ("" + ptoken + "*");
+                c++;
             }
 
             string query = $"SET @q:='{text}';SET @m:='{_match}';SELECT question_id, {DbQTable}.answer_id,{DbATable}.phrase, (MATCH({DbQTable}.phrase) AGAINST(@m IN BOOLEAN MODE)) AS relevance,(SELECT SIMILARITY_STRING(@q, {DbQTable}.phrase)) AS distance FROM {DbQTable} INNER JOIN {DbATable} ON {DbQTable}.answer_id={DbATable}.answer_id WHERE {DbQTable}.experiment=?experiment AND MATCH({DbQTable}.phrase) AGAINST(@m IN BOOLEAN MODE)>0 AND (SELECT SIMILARITY_STRING(@q, {DbQTable}.phrase))>{(SimilarityThreshold * 10)} ORDER BY (distance*(MATCH({DbQTable}.phrase) AGAINST(@m IN BOOLEAN MODE))) DESC LIMIT {results};";
