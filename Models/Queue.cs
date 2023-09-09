@@ -1,10 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-
-namespace NLP.Models
+﻿namespace NLP.Models
 {
     public class Queue
     {
@@ -13,3 +7,4 @@ namespace NLP.Models
         public bool is_cat_ids { get; set; }
     }
 }
+

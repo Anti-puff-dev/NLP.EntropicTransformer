@@ -1,5 +1,10 @@
 ﻿using MySQL;
+using Newtonsoft.Json.Linq;
+using NLP.Models;
+using System.Data;
+using System.Linq;
 using System.Reflection;
+
 
 namespace NLP
 {
@@ -38,6 +43,18 @@ namespace NLP
         }
     }
 
+
+    struct TokenTensor
+    {
+        public string word;
+        public int category_id;
+        public int level;
+        public double weigth;
+        public double relevance;
+        public int count;
+    }
+
+
     public class Classify
     {
         public static string Experiment = "default";
@@ -45,8 +62,11 @@ namespace NLP
         public static string DbTable = "nlp_dataset";
         public static double TrainingRate = 1.1;
         public static double TrainingRateDecay = 1.1;
-        public static double MinWeight = 0.0001;
+        public static double MinWeight = 0.001;
         public static double MaxWeight = 10000;
+        static TokenTensor[] tensors;
+
+
 
         public static string DbConnection
         {
@@ -57,7 +77,7 @@ namespace NLP
         public static double word_pooling = 1d;
         public static int maxlength = 0;
         public static bool soundex = false;
-
+     
 
 
         public Classify()
@@ -75,6 +95,24 @@ namespace NLP
             Classify.word_pooling = word_pooling;
             Classify.maxlength = maxlength;
             Classify.soundex = sondex;
+
+            DataSet ds = Data.Query($"SELECT nlp_dataset.word, nlp_dataset.category_id, nlp_dataset.level, nlp_dataset.weight, nlp_dataset.relevance, nlp_dataset.count FROM nlp_dataset WHERE nlp_dataset.experiment_id={ExperimentId} AND nlp_dataset.weight>{MinWeight.ToString().Replace(",", ".")} ORDER BY nlp_dataset.word ASC, nlp_dataset.weight DESC", new string[] { });
+
+            tensors = new TokenTensor[ds.Tables[0].Rows.Count];
+
+            int i = 0;
+            foreach (DataRow row in ds.Tables[0].Rows)
+            {
+                tensors[i].word = row[0].ToString();
+                tensors[i].category_id = Convert.ToInt32(row[1]);
+                tensors[i].level = Convert.ToInt32(row[2]);
+                tensors[i].weigth = Convert.ToDouble(row[3]);
+                tensors[i].relevance = Convert.ToDouble(row[4]);
+                tensors[i].count = Convert.ToInt32(row[5]);
+                i++;
+            }
+
+
             return new Classify();
         }
 
@@ -436,18 +474,19 @@ namespace NLP
 
 
             Models.Token[] _tokens = tokens.OrderByDescending(i => i.weight).ToArray();
- 
+
+
             if (subcategories_levels > 0)
             {
                 subcategories_levels--;
 
                 foreach (Models.Token token in _tokens)
                 {
-                    //Models.Token[] word_tokens = MySQL.Json.Select.Fill($"SELECT nlp_dataset.*  FROM {DbTable} INNER JOIN {DbTable}_categories ON {DbTable}_categories.category_id={DbTable}.category_id AND {DbTable}_categories.experiment_id={DbTable}.experiment_id AND {DbTable}_categories.parent_id=0 WHERE {DbTable}.experiment_id=?experiment_id AND word=?word AND {DbTable}.level=0 AND weight>{MinWeight.ToString().Replace(",", ".")} ORDER BY weight DESC LIMIT 30", new string[] { ExperimentId, token.word }).Multiple<Models.Token>();
-                    Models.Token[] word_tokens = MySQL.Json.Select.Fill($"SELECT nlp_dataset.*  FROM {DbTable}  WHERE {DbTable}.experiment_id=?experiment_id AND word=?word AND {DbTable}.level=0 AND weight>{MinWeight.ToString().Replace(",", ".")} ORDER BY weight DESC LIMIT 30", new string[] { ExperimentId, token.word }).Multiple<Models.Token>();
+                    Models.Token[] word_tokens = TensorsToTokens(token.word, 0);//MySQL.Json.Select.Fill($"SELECT nlp_dataset.*  FROM {DbTable}  WHERE {DbTable}.experiment_id=?experiment_id AND word=?word AND {DbTable}.level=0 AND weight>{MinWeight.ToString().Replace(",", ".")} ORDER BY weight DESC LIMIT 30", new string[] { ExperimentId, token.word }).Multiple<Models.Token>();
                     if (word_tokens != null && word_tokens.Length > 0) list.Add(word_tokens);
                 }
 
+               
                 int c = 0;
                 foreach (Models.Token[] token_list in list)
                 {
@@ -461,28 +500,25 @@ namespace NLP
                             list_categories[(int)index].relevance_avg = (list_categories[(int)index].relevance_avg + token.relevance) / 2;
                             list_categories[(int)index].relevance_sum += token.relevance;
                             list_categories[(int)index].count++;
-
-
-                            //Console.WriteLine(cat.name);
-                            //list_categories.Add(new Models.Category() { category_id = token.category_id, name = list_categories[(int)index].name, count = 1, weigths_sum = token.weight, weigths_avg = token.weight, relevance_sum = token.relevance, relevance_avg = token.relevance, subcategories = PredictSubCategory(_tokens, token.category_id, subcategories_levels, results) });
-
-                            //Console.WriteLine($">>> weigths_sum: " + cat.weigths_sum + " cat.relevance_sum: " + cat.relevance_sum);
-                            //Console.WriteLine($">>> token.weight " + token.weight + " token.relevance: " + token.relevance);
                         }
                         else
                         {
-                            string category_name = Data.Query($"SELECT name FROM {DbTable}_categories WHERE category_id=?category_id AND level=0 AND experiment_id=?experiment_id", new string[] { token.category_id.ToString(), ExperimentId }).Tables[0].Rows[0][0].ToString();
-                           
-                            list_categories.Add(new Models.Category() { category_id = token.category_id, name = category_name, count = 1, weigths_sum = token.weight, weigths_avg = token.weight, relevance_sum = token.relevance, relevance_avg = token.relevance, subcategories = PredictSubCategory(_tokens, token.category_id, subcategories_levels, results) });
+                            string category_name = ""; // Data.Query($"SELECT name FROM {DbTable}_categories WHERE category_id=?category_id AND level=0 AND experiment_id=?experiment_id", new string[] { token.category_id.ToString(), ExperimentId }).Tables[0].Rows[0][0].ToString();
+                            list_categories.Add(new Models.Category() { category_id = token.category_id, name = category_name, count = 1, weigths_sum = token.weight, weigths_avg = token.weight, relevance_sum = token.relevance, relevance_avg = token.relevance/*, subcategories = PredictSubCategory(_tokens, token.category_id, subcategories_levels, results)*/ });
                         }
-
-                        //Console.WriteLine($"category_id: {token.category_id} \tword: {token.word} \t count: {token.count} \t weight: {token.weight} \t relevance: {token.relevance} \n");
                     }
                 }
 
-                //Models.Category[] mc = list_categories.OrderByDescending(item => item.count).Take(1).ToArray();
-                //int MaxCount = mc[0].count;
                 list_categories = list_categories.OrderByDescending(item => (item.weigths_sum * item.relevance_sum)).Take(results).ToList();
+
+
+                if (subcategories_levels > 0)
+                {
+                    for (int i = 0; i < list_categories.Count; i++)
+                    {
+                        list_categories[i].subcategories = PredictSubCategory(_tokens, list_categories[i].category_id, subcategories_levels, results);
+                    }
+                }
             }
 
 
@@ -504,9 +540,12 @@ namespace NLP
 
                 foreach (Models.Token token in tokens)
                 {
-                    Models.Token[] word_tokens = MySQL.Json.Select.Fill($"SELECT nlp_dataset.*  FROM {DbTable} INNER JOIN {DbTable}_categories ON {DbTable}_categories.category_id={DbTable}.category_id AND {DbTable}_categories.experiment_id={DbTable}.experiment_id AND {DbTable}_categories.parent_id=?parent_id WHERE {DbTable}.experiment_id=?experiment_id AND word=?word AND {DbTable}.level=?level AND weight>{MinWeight.ToString().Replace(",", ".")} ORDER BY weight DESC LIMIT 30", new string[] { parent_id.ToString(), ExperimentId, token.word, level.ToString() }).Multiple<Models.Token>();
+                    Models.Token[] word_tokens = TensorsToTokens(token.word, level);//MySQL.Json.Select.Fill($"SELECT nlp_dataset.*  FROM {DbTable} INNER JOIN {DbTable}_categories ON {DbTable}_categories.category_id={DbTable}.category_id AND {DbTable}_categories.experiment_id={DbTable}.experiment_id AND {DbTable}_categories.parent_id=?parent_id WHERE {DbTable}.experiment_id=?experiment_id AND word=?word AND {DbTable}.level=?level AND weight>{MinWeight.ToString().Replace(",", ".")} ORDER BY weight DESC LIMIT 30", new string[] { parent_id.ToString(), ExperimentId, token.word, level.ToString() }).Multiple<Models.Token>();
+                    //Trace.Message($"SELECT nlp_dataset.*  FROM {DbTable} INNER JOIN {DbTable}_categories ON {DbTable}_categories.category_id={DbTable}.category_id AND {DbTable}_categories.experiment_id={DbTable}.experiment_id AND {DbTable}_categories.parent_id={parent_id} WHERE {DbTable}.experiment_id={ExperimentId} AND word={token.word} AND {DbTable}.level={level} AND weight>{MinWeight.ToString().Replace(",", ".")} ORDER BY weight DESC LIMIT 30");
                     if (word_tokens != null && word_tokens.Length > 0) list.Add(word_tokens);
                 }
+
+               
 
                 int c = 1;
                 foreach (Models.Token[] token_list in list)
@@ -534,12 +573,12 @@ namespace NLP
                         }
                         else
                         {
-                            string category_name = Data.Query($"SELECT name FROM {DbTable}_categories WHERE category_id=?category_id AND level=?level AND experiment_id=?experiment_id", new string[] { token.category_id.ToString(), level.ToString(), ExperimentId }).Tables[0].Rows[0][0].ToString();
+                            string category_name = ""; // Data.Query($"SELECT name FROM {DbTable}_categories WHERE category_id=?category_id AND level=?level AND experiment_id=?experiment_id", new string[] { token.category_id.ToString(), level.ToString(), ExperimentId }).Tables[0].Rows[0][0].ToString();
                             //Console.WriteLine(">> " + category_name);
-                            list_categories.Add(new Models.Category() { category_id = token.category_id, name = category_name, count = 1, weigths_sum = token.weight, weigths_avg = token.weight, relevance_sum = token.relevance, relevance_avg = token.relevance, subcategories = PredictSubCategory(tokens, token.category_id, subcategories_levels, results) });
+                            list_categories.Add(new Models.Category() { category_id = token.category_id, name = category_name, count = 1, weigths_sum = token.weight, weigths_avg = token.weight, relevance_sum = token.relevance, relevance_avg = token.relevance/*, subcategories = PredictSubCategory(tokens, token.category_id, subcategories_levels, results)*/ });
                         }
 
-                        //Console.WriteLine($"\t subcategory_id: {token.category_id} \tword: {token.word} \t count: {token.count} \t weight: {token.weight} \t relevance: {token.relevance}");
+                        //Trace.Message($"\t subcategory_id: {token.category_id} \tword: {token.word} \t count: {token.count} \t weight: {token.weight} \t relevance: {token.relevance}");
                     }
                 }
 
@@ -548,6 +587,16 @@ namespace NLP
                 //int MaxCount = mc != null && mc.Length > 0 ? mc[0].count : 1;
                 list_categories = list_categories.OrderByDescending(item => (item.weigths_sum * item.relevance_sum)).Take(results).ToList();
                 level++;
+
+                //Trace.Message($"{subcategories_levels}");
+
+                if (subcategories_levels > 0)
+                {
+                    for (int i = 0; i < list_categories.Count; i++)
+                    {
+                        list_categories[i].subcategories = PredictSubCategory(tokens, list_categories[i].category_id, subcategories_levels, results);
+                    }
+                }
             }
 
             return NLP.Result.Normalize(list_categories.ToArray());
@@ -580,6 +629,26 @@ namespace NLP
 
 
         #region Functions
+        public static Models.Token[] TensorsToTokens(string word, int level)
+        {
+            TokenTensor[] wordTensors = tensors.Where<TokenTensor>(t => t.word == word && t.level == level).ToArray();
+            Models.Token[] wordTokens = new Models.Token[wordTensors.Length];
+            for(int i = 0; i < wordTensors.Length; i++)
+            {
+                wordTokens[i] = new Models.Token() {
+                    word = wordTensors[i].word,
+                    category_id = wordTensors[i].category_id,
+                    weight = wordTensors[i].weigth,
+                    relevance = wordTensors[i].relevance,
+                    count = wordTensors[i].count
+                };
+            }
+
+            return wordTokens;
+        }
+
+
+
         public static Models.Token[] Weights(Models.Token[] tokens)
         {
             int maxCount = tokens.OrderByDescending(i => i.count).First().count;

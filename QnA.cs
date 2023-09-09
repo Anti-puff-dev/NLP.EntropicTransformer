@@ -1,14 +1,11 @@
 ﻿using MySQL;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+
 
 namespace NLP
 {
     public class QnA
     {
+        public static string IntentId = "";
         public static string Experiment = "default";
         public static string DbQTable = "nlp_questions";
         public static string DbATable = "nlp_answers";
@@ -61,7 +58,7 @@ namespace NLP
             {
                 string ptoken = Tokenize.WordPooling(token, PoolingRate);
                 if (token.Length > 2) _match += (_match == "" ? "" : ",") + ("\"" + token + "\"");
-                if (ptoken.Length > 2) _match += (_match == "" ? "" : ",") + ("" + ptoken + "*");
+                if (ptoken.Length > 2) _match += (_match == "" ? "" : ",") + ("" + ptoken.Replace("-", "*") + "*");
                 c++;
             }
 
@@ -94,7 +91,7 @@ namespace NLP
                 string ptoken = Tokenize.WordPooling(token, PoolingRate);
                 if (token.Length > 2) _match += (_match == "" ? "" : ",") + ("\"" + token + "\"");
                 //if (ptoken.Length > 2) _match += (_match == "" ? "" : ",") + ("" + ptoken + (c == 0 && token != ptoken ? "+" : "*"));
-                if (ptoken.Length > 2) _match += (_match == "" ? "" : ",") + ("" + ptoken + "*");
+                if (ptoken.Length > 2) _match += (_match == "" ? "" : ",") + ("" + ptoken.Replace("-", "*") + "*");
                 c++;
             }
 
@@ -115,6 +112,32 @@ namespace NLP
             {
                 return new string[] { };
             }
+        }
+
+
+        public static Models.QnA.Result[] Predict(string text, int results, string? category_id = null)
+        {
+            if (category_id != null) IntentId = category_id;
+
+            text = Sanitize.HardApply(text);
+            string[] list = text.Split(new char[] { ' ', '\t' });
+            string[] words = list.Distinct().ToArray<string>();
+
+            string _match = "";
+
+            int c = 0;
+            foreach (string token in words)
+            {
+                string ptoken = Tokenize.WordPooling(token, PoolingRate);
+                if (token.Length > 2) _match += (_match == "" ? "" : ",") + ("\"" + token + "\"");
+                if (ptoken.Length > 2) _match += (_match == "" ? "" : ",") + ("" + ptoken.Replace("-", "*") + "*");
+                c++;
+            }
+
+            //Console.WriteLine($"SET @q:='{text}';SET @m:='{_match}';SELECT question_id, {DbQTable}.answer_id,{DbATable}.phrase, (MATCH({DbQTable}.phrase) AGAINST(@m IN BOOLEAN MODE)) AS relevance,(SELECT SIMILARITY_STRING(@q, {DbQTable}.phrase)) AS distance FROM {DbQTable} INNER JOIN {DbATable} ON {DbQTable}.answer_id={DbATable}.answer_id WHERE {DbQTable}.category_id=?category_id AND MATCH({DbQTable}.phrase) AGAINST(@m IN BOOLEAN MODE)>0 AND (SELECT SIMILARITY_STRING(@q, {DbQTable}.phrase))>{(SimilarityThreshold * 10)} ORDER BY (distance*(MATCH({DbQTable}.phrase) AGAINST(@m IN BOOLEAN MODE))) DESC LIMIT {results};");
+            string query = $"SET @q:='{text}';SET @m:='{_match}';SELECT question_id, {DbQTable}.answer_id,{DbATable}.phrase, (MATCH({DbQTable}.phrase) AGAINST(@m IN BOOLEAN MODE)) AS relevance,(SELECT SIMILARITY_STRING(@q, {DbQTable}.phrase)) AS distance FROM {DbQTable} INNER JOIN {DbATable} ON {DbQTable}.answer_id={DbATable}.answer_id WHERE {DbQTable}.category_id=?category_id AND MATCH({DbQTable}.phrase) AGAINST(@m IN BOOLEAN MODE)>0 AND (SELECT SIMILARITY_STRING(@q, {DbQTable}.phrase))>{(SimilarityThreshold * 10)} ORDER BY (distance*(MATCH({DbQTable}.phrase) AGAINST(@m IN BOOLEAN MODE))) DESC LIMIT {results};";
+            Models.QnA.Result[] _results = MySQL.Json.Select.Fill(Data.Query(query, new string[] { IntentId })).Multiple<Models.QnA.Result>();
+            return _results;
         }
 
 
